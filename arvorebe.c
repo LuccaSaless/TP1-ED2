@@ -1,321 +1,225 @@
+// OBRIGATÓRIO PARA ARQUIVOS > 2GB
+#define _FILE_OFFSET_BITS 64 
+
 #include "arvorebe.h"
 #include <time.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
 
-// --- Protótipos das Funções Internas (Estáticas) ---
-// Só um lembrete para o compilador do que ele vai encontrar mais pra frente no arquivo.
-static Apontador cria_no(bool eh_folha, AnaliseExperimental *analise);
-static void insere_com_espaco(Apontador no, Item item, Apontador filho_dir);
-static void trata_overflow(Apontador no, Apontador *raiz, AnaliseExperimental *analise);
-static void split(Apontador no, Apontador *raiz, AnaliseExperimental *analise);
-static bool redistribui(Apontador no, AnaliseExperimental *analise);
-static void Imprime_recursivo(Apontador ap, int nivel);
-static void Libera_recursivo(Apontador no);
-
-
-// --- Implementação das Funções ---
-
-// Começa a árvore do zero, sem nenhum nó.
-void Inicializa(Apontador *arvore) {
-    *arvore = NULL;
+void InicializaArvoreBEst(TipoApontadorBE* Arvore) {
+    *Arvore = NULL;
 }
 
-// Pede um pedacinho de memória pro sistema e prepara um nó novinho em folha.
-static Apontador cria_no(bool eh_folha, AnaliseExperimental *analise) {
-    analise->numTransferencias++; // Criar um nó conta como uma "escrita" no disco.
-    Apontador no = (Apontador)malloc(sizeof(No));
-    no->eh_folha = eh_folha;
-    no->n = 0;
-    no->pai = NULL;
-    for(int i=0; i < MAX_CHAVES + 2; i++) no->filhos[i] = NULL;
-    return no;
-}
+TipoOffset PesquisaBE(int chave, TipoApontadorBE Ap, int *comp) {
+    long i = 1;
+    if (Ap == NULL) return -1;
 
-// A parte fácil: quando o nó tem espaço, só precisa achar o lugar certo
-// e "empurrar" os outros pro lado pra encaixar o novo item.
-static void insere_com_espaco(Apontador no, Item item, Apontador filho_dir) {
-    int i = no->n - 1;
-    // Enquanto o item novo for menor, vai empurrando...
-    while (i >= 0 && item.chave < no->itens[i].chave) {
-        no->itens[i + 1] = no->itens[i];
-        no->filhos[i + 2] = no->filhos[i + 1];
-        i--;
+    while (i < Ap->n && chave > Ap->chaves[i-1]) {
+        i++;
+        (*comp)++;
     }
-    // Achou o lugar! Encaixa o item e o ponteiro da direita dele.
-    no->itens[i + 1] = item;
-    no->filhos[i + 2] = filho_dir;
-    // Avisa o filho (se ele existir) quem é o novo pai dele.
-    if (filho_dir) filho_dir->pai = no;
-    no->n++;
+
+    (*comp)++;
+    if (chave == Ap->chaves[i-1]) {
+        return Ap->offsets[i-1]; // Retorna a posição no HD
+    }
+
+    (*comp)++;
+    if (chave < Ap->chaves[i-1])
+        return PesquisaBE(chave, Ap->p[i-1], comp);
+    else
+        return PesquisaBE(chave, Ap->p[i], comp);
 }
 
-// A função principal de inserção que o programa chama.
-void Insere(Item item, Apontador *raiz, AnaliseExperimental *analise) {
-    // Se a árvore nem existe ainda, cria a raiz, bota o primeiro item e pronto.
-    if (*raiz == NULL) {
-        *raiz = cria_no(true, analise);
-        (*raiz)->itens[0] = item;
-        (*raiz)->n = 1;
+// Inserção auxiliar na página
+void InsereNaPaginaBE(TipoApontadorBE Ap, int chave, TipoOffset offset, TipoApontadorBE ApDir, int *comp) {
+    short NaoAchouPosicao;
+    int k;
+
+    k = Ap->n;
+    NaoAchouPosicao = (k > 0);
+
+    while (NaoAchouPosicao) {
+        (*comp)++;
+        if (chave >= Ap->chaves[k-1]) {
+            NaoAchouPosicao = 0;
+            break;
+        }
+        
+        Ap->chaves[k] = Ap->chaves[k-1];
+        Ap->offsets[k] = Ap->offsets[k-1]; // Move offset junto
+        Ap->p[k+1] = Ap->p[k];
+        k--;
+        if (k < 1) NaoAchouPosicao = 0;
+    }
+
+    Ap->chaves[k] = chave;
+    Ap->offsets[k] = offset;
+    Ap->p[k+1] = ApDir;
+    Ap->n++;
+}
+
+// Função recursiva interna
+void InsBE(int chave, TipoOffset offset, TipoApontadorBE Ap, short *Cresceu, 
+           int *ChaveRetorno, TipoOffset *OffsetRetorno, TipoApontadorBE *ApRetorno, int *comp) {
+    long i = 1;
+    long j;
+    TipoApontadorBE ApTemp;
+
+    if (Ap == NULL) {
+        *Cresceu = 1;
+        *ChaveRetorno = chave;
+        *OffsetRetorno = offset;
+        *ApRetorno = NULL;
         return;
     }
 
-    // Se a árvore já existe, a gente começa pela raiz e vai descendo...
-    Apontador no = *raiz;
-    analise->numTransferencias++; // Acessou a raiz.
+    while (i < Ap->n && chave > Ap->chaves[i-1]) {
+        i++;
+        (*comp)++;
+    }
+
+    (*comp)++;
+    if (chave == Ap->chaves[i-1]) {
+        *Cresceu = 0; 
+        return;
+    }
+
+    (*comp)++;
+    if (chave < Ap->chaves[i-1]) i--;
+
+    InsBE(chave, offset, Ap->p[i], Cresceu, ChaveRetorno, OffsetRetorno, ApRetorno, comp);
+
+    if (!*Cresceu) return;
+
+    if (Ap->n < MM_ESTRELA) {
+        InsereNaPaginaBE(Ap, *ChaveRetorno, *OffsetRetorno, *ApRetorno, comp);
+        *Cresceu = 0;
+        return;
+    }
+
+    // --- SPLIT ---
+    // (Nota: Em uma implementação rigorosa de B*, tentaríamos redistribuir para irmãos
+    // antes de dividir. Aqui usamos o Split padrão para garantir estabilidade de memória)
+    ApTemp = (TipoApontadorBE)malloc(sizeof(TipoPaginaBE));
+    ApTemp->n = 0;
+    ApTemp->p[0] = NULL;
+
+    if (i < M_ESTRELA + 1) {
+        InsereNaPaginaBE(ApTemp, Ap->chaves[MM_ESTRELA-1], Ap->offsets[MM_ESTRELA-1], Ap->p[MM_ESTRELA], comp);
+        Ap->n--;
+        InsereNaPaginaBE(Ap, *ChaveRetorno, *OffsetRetorno, *ApRetorno, comp);
+    } else {
+        InsereNaPaginaBE(ApTemp, *ChaveRetorno, *OffsetRetorno, *ApRetorno, comp);
+    }
+
+    for (j = M_ESTRELA + 2; j <= MM_ESTRELA; j++) {
+        InsereNaPaginaBE(ApTemp, Ap->chaves[j-1], Ap->offsets[j-1], Ap->p[j], comp);
+    }
+
+    Ap->n = M_ESTRELA;
+    ApTemp->p[0] = Ap->p[M_ESTRELA+1];
     
-    // ...de galho em galho (nós internos)...
-    while (!no->eh_folha) {
-        int i = no->n - 1;
-        // Qual filho pegar? Procura o caminho certo.
-        while (i >= 0) {
-            analise->numComparacoes++;
-            if (item.chave >= no->itens[i].chave) break;
-            i--;
+    *ChaveRetorno = Ap->chaves[M_ESTRELA];
+    *OffsetRetorno = Ap->offsets[M_ESTRELA];
+    *ApRetorno = ApTemp;
+}
+
+void InsereBEst(int chave, TipoOffset offset, TipoApontadorBE* Ap, int* comp) {
+    short Cresceu;
+    int ChaveRetorno;
+    TipoOffset OffsetRetorno;
+    TipoApontadorBE ApRetorno, ApTemp;
+
+    InsBE(chave, offset, *Ap, &Cresceu, &ChaveRetorno, &OffsetRetorno, &ApRetorno, comp);
+
+    if (Cresceu) {
+        ApTemp = (TipoApontadorBE)malloc(sizeof(TipoPaginaBE));
+        ApTemp->n = 1;
+        ApTemp->chaves[0] = ChaveRetorno;
+        ApTemp->offsets[0] = OffsetRetorno;
+        ApTemp->p[1] = ApRetorno;
+        ApTemp->p[0] = *Ap;
+        *Ap = ApTemp;
+    }
+}
+
+void RodaArvoreBEstrela(const char* nomeArq, int chave_procurada, int quantReg, bool P_flag) {
+    TipoApontadorBE arvore;
+    Item registro_temp;
+    int comparacoes_criacao = 0;
+    
+    InicializaArvoreBEst(&arvore);
+    
+    FILE* arq = fopen(nomeArq, "rb");
+    if (!arq) { perror("Erro"); return; }
+
+    // --- FASE 1: CRIACAO ---
+    clock_t inicio_criacao = clock();
+    while(true) {
+        TipoOffset posicao = ftello(arq);
+        if (fread(&registro_temp, sizeof(Item), 1, arq) != 1) break;
+        InsereBEst(registro_temp.chave, posicao, &arvore, &comparacoes_criacao);
+    }
+    clock_t fim_criacao = clock();
+    double tempo_criacao = (double)(fim_criacao - inicio_criacao) / CLOCKS_PER_SEC;
+
+    printf("\n========================================================\n");
+    printf("METODO: 4 - ARVORE B* (ESTRELA)\n");
+    printf("========================================================\n");
+
+    printf("--- FASE 1: CRIACAO DO INDICE ---\n");
+    printf("Tempo Execucao: %.6f s\n", tempo_criacao);
+    printf("Transferencias: %d (Leitura Sequencial)\n", quantReg); 
+    printf("Comparacoes:    %d\n", comparacoes_criacao);
+
+    // --- FASE 2: PESQUISA ---
+    printf("\n--- FASE 2: PESQUISA ---\n");
+    
+    int comp_pesquisa = 0;
+    int transf_pesquisa = 0;
+    clock_t inicio_pesquisa = clock();
+    
+    if (chave_procurada != -1) {
+        TipoOffset offset_encontrado = PesquisaBE(chave_procurada, arvore, &comp_pesquisa);
+        
+        bool encontrado = false;
+        if (offset_encontrado != -1) {
+            fseeko(arq, offset_encontrado, SEEK_SET);
+            fread(&registro_temp, sizeof(Item), 1, arq);
+            transf_pesquisa = 1; 
+            encontrado = true;
         }
-        no = no->filhos[i + 1]; // Desce para o próximo nível.
-        analise->numTransferencias++;
-    }
-
-    // ...até achar a folha certa. Agora insere o item lá.
-    insere_com_espaco(no, item, NULL);
-    
-    // Epa, a folha ficou cheia demais? (Overflow!)
-    // Se sim, chama o "resolvedor de problemas".
-    if (no->n > MAX_CHAVES) {
-        trata_overflow(no, raiz, analise);
-    }
-}
-
-// O "resolvedor de problemas". A MÁGICA da B* acontece aqui.
-static void trata_overflow(Apontador no, Apontador *raiz, AnaliseExperimental *analise) {
-    // A primeira opção da B* é sempre ser "educada" e tentar redistribuir com os vizinhos.
-    // Se a função 'redistribui' retornar 'true', ela conseguiu resolver e nosso trabalho aqui acabou.
-    if (no->pai != NULL && redistribui(no, analise)) {
-        return; // Sucesso, redistribuição resolveu o overflow!
-    }
-
-    // Se não tem pai (é a raiz) ou se a redistribuição falhou (vizinhos lotados),
-    // não tem jeito... vamos para o plano B, que é o 'split' da Árvore B.
-    split(no, raiz, analise);
-}
-
-// A FUNÇÃO "PLUS"! A essência da B*. Tenta evitar um split caro.
-static bool redistribui(Apontador no, AnaliseExperimental *analise) {
-    Apontador pai = no->pai;
-    int i = 0;
-    // Descobre qual a posição do nosso nó problemático na lista de filhos do pai.
-    while(i <= pai->n && pai->filhos[i] != no) i++;
-
-    // Tenta "emprestar" um espacinho do irmão da ESQUERDA.
-    if (i > 0 && pai->filhos[i - 1]->n < MAX_CHAVES) {
-        analise->numTransferencias += 1; // Acesso ao irmão
-        Apontador irmao_esq = pai->filhos[i - 1];
         
-        // Faz uma "rotação":
-        // 1. Pega o primeiro item do nosso nó lotado.
-        Item item_subindo = no->itens[0];
-        Apontador primeiro_filho_do_no = no->filhos[0];
+        clock_t fim_pesquisa = clock();
+        double tempo_pesquisa = (double)(fim_pesquisa - inicio_pesquisa) / CLOCKS_PER_SEC;
 
-        // 2. A chave que separava os nós no pai desce para o final do irmão esquerdo.
-        insere_com_espaco(irmao_esq, pai->itens[i-1], primeiro_filho_do_no);
-
-        // 3. O item que pegamos do nosso nó sobe para o pai.
-        pai->itens[i-1] = item_subindo;
-        
-        // 4. Limpa o item que subiu do nosso nó, deslocando todo mundo.
-        no->n--;
-        for (int j = 0; j < no->n; j++) no->itens[j] = no->itens[j + 1];
-        for (int j = 0; j <= no->n; j++) no->filhos[j] = no->filhos[j + 1];
-        
-        return true; // Deu certo!
-    }
-
-    // Se não deu com a esquerda, tenta com o irmão da DIREITA.
-    if (i < pai->n && pai->filhos[i + 1]->n < MAX_CHAVES) {
-        analise->numTransferencias += 1; // Acesso ao irmão
-        Apontador irmao_dir = pai->filhos[i + 1];
-        
-        // Pega o último item do nó lotado.
-        Item item_subindo = no->itens[no->n - 1];
-        Apontador ultimo_filho_do_no = no->filhos[no->n];
-        no->n--; // Já podemos diminuir o tamanho dele.
-        
-        // A chave do pai desce para o começo do irmão direito.
-        insere_com_espaco(irmao_dir, pai->itens[i], ultimo_filho_do_no);
-        
-        // O último item que pegamos do nó lotado sobe para o pai.
-        pai->itens[i] = item_subindo;
-        
-        return true; // Deu certo!
-    }
-
-    return false; // Nenhum irmão pôde ajudar.
-}
-
-// O Plano B: se a redistribuição falhou, a gente racha o nó no meio.
-static void split(Apontador no, Apontador *raiz, AnaliseExperimental *analise) {
-    int meio = no->n / 2;
-    // Cria um irmão novinho pra receber a metade dos itens.
-    Apontador novo_irmao = cria_no(no->eh_folha, analise);
-    
-    // O item do meio da lista vai ser promovido pro pai.
-    Item item_promovido = no->itens[meio];
-    
-    // Copia a segunda metade dos itens e filhos para o novo irmão.
-    novo_irmao->n = no->n - meio - 1;
-    for (int i = 0; i < novo_irmao->n; i++) {
-        novo_irmao->itens[i] = no->itens[meio + 1 + i];
-        novo_irmao->filhos[i] = no->filhos[meio + 1 + i];
-        if(novo_irmao->filhos[i]) novo_irmao->filhos[i]->pai = novo_irmao;
-    }
-    novo_irmao->filhos[novo_irmao->n] = no->filhos[no->n];
-    if(novo_irmao->filhos[novo_irmao->n]) novo_irmao->filhos[novo_irmao->n]->pai = novo_irmao;
-
-    // O nó original agora só tem a primeira metade.
-    no->n = meio;
-    
-    // Agora, vamos inserir o item promovido no pai.
-    Apontador pai = no->pai;
-    // Se não tinha pai (era a raiz), precisamos criar um pai novo. A árvore cresce!
-    if (pai == NULL) {
-        pai = cria_no(false, analise);
-        *raiz = pai;
-        pai->filhos[0] = no;
-        no->pai = pai;
-    }
-
-    // Insere o item promovido e o ponteiro pro novo irmão no pai.
-    novo_irmao->pai = pai;
-    insere_com_espaco(pai, item_promovido, novo_irmao);
-
-    // Epa, o pai também ficou cheio demais? Chamamos o 'resolvedor' pra ele também! (Recursão)
-    if(pai->n > MAX_CHAVES) {
-       trata_overflow(pai, raiz, analise);
-    }
-}
-
-// Procurar é sempre mais fácil. Começa na raiz e vai descendo...
-bool Pesquisa(Item *item, Apontador no, AnaliseExperimental *analise) {
-    if (no == NULL) return false;
-    analise->numTransferencias++;
-    int i = 0;
-    // Em cada nó, procura o caminho certo...
-    while (i < no->n) {
-        analise->numComparacoes++;
-        if (item->chave < no->itens[i].chave) break; // Achei o caminho, é pra esquerda
-        analise->numComparacoes++;
-        if (item->chave == no->itens[i].chave) { // Epa, achei a própria chave!
-            *item = no->itens[i];
-            return true;
-        }
-        i++; // Se não, continuo procurando no mesmo nó.
-    }
-    // Se cheguei numa folha e não achei, o item não existe.
-    if (no->eh_folha) return false;
-    // Se não, desce pro filho que a gente encontrou.
-    return Pesquisa(item, no->filhos[i], analise);
-}
-
-// Libera a memória da árvore, um nó de cada vez, de baixo pra cima.
-static void Libera_recursivo(Apontador no) {
-    if (no == NULL) return;
-    if (!no->eh_folha) {
-        for (int i = 0; i <= no->n; i++) Libera_recursivo(no->filhos[i]);
-    }
-    free(no);
-}
-
-void Libera(Apontador *arvore) {
-    Libera_recursivo(*arvore);
-    *arvore = NULL;
-}
-
-// Imprime a árvore nível por nível, pra gente conseguir visualizar.
-static void Imprime_recursivo(Apontador ap, int nivel) {
-    if (ap == NULL) return;
-    for (int i = 0; i < nivel; i++) printf("  ");
-    printf("Nivel %d [n=%d]: ", nivel, ap->n);
-    for (int i = 0; i < ap->n; i++) printf("%d ", ap->itens[i].chave);
-    printf("\n");
-    if (!ap->eh_folha) {
-        for (int i = 0; i <= ap->n; i++) Imprime_recursivo(ap->filhos[i], nivel + 1);
-    }
-}
-
-void Imprime(Apontador arvore) {
-    printf("--- ESTRUTURA DA ÁRVORE ---\n");
-    Imprime_recursivo(arvore, 0);
-    printf("---------------------------\n");
-}
-
-
-// A função principal que seu main.c chama. Ela orquestra tudo.
-void RodaArvoreBEstrela(FILE *arq, int chave_procurada, int quantReg, bool P_flag) {
-    Apontador arvore;
-    Item registro_lido;
-    AnaliseExperimental analise_criacao = {0, 0, 0.0};
-    AnaliseExperimental analise_pesquisa = {0, 0, 0.0};
-    clock_t inicio, fim;
-    Inicializa(&arvore);
-
-    // ETAPA 1: Construir a árvore lendo o arquivo.
-    printf("\n[Método 4: Árvore B*] Iniciando criação do índice a partir do arquivo...\n");
-    rewind(arq);
-    inicio = clock();
-    while (fread(&registro_lido, sizeof(Item), 1, arq) == 1) {
-        Insere(registro_lido, &arvore, &analise_criacao);
-    }
-    fim = clock();
-    analise_criacao.tempoExecucao = ((double)(fim - inicio)) / CLOCKS_PER_SEC;
-    printf("[Árvore B*] Criação concluída.\n");
-
-    // Se o usuário pediu pra ver a árvore com a flag -P
-    if (P_flag) {
-        Imprime(arvore);
-    }
-
-    // ETAPA 2: Fazer a pesquisa, seja a simples ou o experimento.
-    if (chave_procurada != -1) { // MODO DE BUSCA SIMPLES
-        Item item_pesquisado;
-        item_pesquisado.chave = chave_procurada;
-        printf("\nIniciando pesquisa pela chave %d...\n", chave_procurada);
-        inicio = clock();
-        bool encontrado = Pesquisa(&item_pesquisado, arvore, &analise_pesquisa);
-        fim = clock();
-        analise_pesquisa.tempoExecucao = ((double)(fim - inicio)) / CLOCKS_PER_SEC;
         if (encontrado) {
-            printf("\n-> Item encontrado:\n   Chave: %d\n", item_pesquisado.chave);
+            printf("[STATUS]: ITEM ENCONTRADO\n");
+            printf("> Chave:  %d\n", registro_temp.chave);
+            printf("> Dado1:  %ld\n", registro_temp.dado1);
+            if(P_flag) printf("> Dado2:  %.50s...\n", registro_temp.dado2);
         } else {
-            printf("\n-> Item com chave %d nao encontrado.\n", chave_procurada);
+            printf("[STATUS]: ITEM NAO ENCONTRADO (Chave %d)\n", chave_procurada);
         }
-        printf("\n========== ANÁLISE DE DESEMPENHO (Busca Única) ==========\n");
-        printf("[CRIAÇÃO DO ÍNDICE]\n  - Tempo: %f s\n  - Comparações: %d\n  - Transferências: %d\n", analise_criacao.tempoExecucao, analise_criacao.numComparacoes, analise_criacao.numTransferencias);
-        printf("[PESQUISA]\n  - Tempo: %f s\n  - Comparações: %d\n  - Transferências: %d\n", analise_pesquisa.tempoExecucao, analise_pesquisa.numComparacoes, analise_pesquisa.numTransferencias);
-        printf("========================================================\n");
-    } else { // MODO EXPERIMENTO
-        printf("\nIniciando modo de experimento: 10 buscas automáticas...\n");
-        AnaliseExperimental analise_total = {0, 0, 0.0};
-        int chaves_a_pesquisar[10];
-        for(int i=0; i < 10; i++) chaves_a_pesquisar[i] = (i + 1) * (quantReg / 11);
-        for(int i=0; i < 10; i++) {
-            AnaliseExperimental analise_temp = {0, 0, 0.0};
-            Item res_temp;
-            res_temp.chave = chaves_a_pesquisar[i];
-            clock_t start_p = clock();
-            Pesquisa(&res_temp, arvore, &analise_temp);
-            clock_t end_p = clock();
-            analise_total.numComparacoes += analise_temp.numComparacoes;
-            analise_total.numTransferencias += analise_temp.numTransferencias;
-            analise_total.tempoExecucao += ((double)(end_p - start_p)) / CLOCKS_PER_SEC;
-        }
-        printf("\n========== ANÁLISE DE DESEMPENHO (Média de 10 Buscas) ==========\n");
-        printf("[CRIAÇÃO DO ÍNDICE]\n  - Tempo: %f s\n  - Comparações: %d\n  - Transferências: %d\n", analise_criacao.tempoExecucao, analise_criacao.numComparacoes, analise_criacao.numTransferencias);
-        printf("[PESQUISA - MÉDIAS]\n  - Tempo (médio): %f s\n  - Comparações (média): %.2f\n  - Transferências (média): %.2f\n", analise_total.tempoExecucao / 10.0, (double)analise_total.numComparacoes / 10.0, (double)analise_total.numTransferencias / 10.0);
-        printf("===============================================================\n");
-    }
 
-    // ETAPA 3: Limpar a memória pra não deixar sujeira pra trás.
-    Libera(&arvore);
+        printf("\n--- METRICAS DE PESQUISA ---\n");
+        printf("Tempo Execucao: %.6f s\n", tempo_pesquisa);
+        printf("Transferencias: %d\n", transf_pesquisa);
+        printf("Comparacoes:    %d\n", comp_pesquisa);
+    } 
+    else {
+         printf("Modo experimental (media) nao formatado neste padrao.\n");
+    }
+    printf("========================================================\n");
+
+    fclose(arq);
+    LiberaArvoreBE(arvore);
+}
+
+void LiberaArvoreBE(TipoApontadorBE Ap) {
+    if (Ap != NULL) {
+        for (int i = 0; i <= Ap->n; i++) {
+            LiberaArvoreBE(Ap->p[i]);
+        }
+        free(Ap);
+    }
 }

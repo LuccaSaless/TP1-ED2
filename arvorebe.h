@@ -1,34 +1,40 @@
 #ifndef ARVOREBE_H
 #define ARVOREBE_H
 
-#include "item.h"
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <sys/types.h> // Para off_t
+#include "item.h"
 
-#define M_ORDEM 2
-#define MAX_CHAVES (2 * M_ORDEM)
+// M alto para garantir árvore baixa e poucos mallocs
+#define M_ESTRELA 100
+#define MM_ESTRELA (2 * M_ESTRELA)
 
-typedef struct No* Apontador;
+// Definição de tipo para suporte a arquivos grandes no Linux
+typedef off_t TipoOffset;
 
-typedef struct No {
-    bool eh_folha;
-    int n; // numero de chaves/itens
-    Item itens[MAX_CHAVES + 1]; 
-    Apontador filhos[MAX_CHAVES + 2];
-    Apontador pai;
-} No;
+typedef struct TipoPaginaBE* TipoApontadorBE;
 
+typedef struct TipoPaginaBE {
+    short n;
+    int chaves[MM_ESTRELA];          
+    TipoOffset offsets[MM_ESTRELA];  // Guarda ONDE está no arquivo
+    TipoApontadorBE p[MM_ESTRELA + 1];
+} TipoPaginaBE;
 
-// --- Funções Públicas ---
-void Inicializa(Apontador *arvore);
-void Insere(Item item, Apontador *arvore, AnaliseExperimental *analise);
-// CORREÇÃO: Nome da função alterado para ser único
-bool Pesquisa_B_Estrela(Item *item, Apontador arvore, AnaliseExperimental *analise);
-void Libera(Apontador *arvore);
-void Imprime(Apontador arvore);
+// Inicialização
+void InicializaArvoreBEst(TipoApontadorBE* Arvore);
 
-// --- Função Orquestradora ---
-void RodaArvoreBEstrela(FILE *arq, int chave_procurada, int quantReg, bool P_flag);
+// Pesquisa retorna o offset (ou -1)
+TipoOffset PesquisaBE(int chave, TipoApontadorBE Ap, int* comp);
+
+// Inserção recebe Chave e Offset (não o Item completo!)
+void InsereBEst(int chave, TipoOffset offset, TipoApontadorBE* Ap, int* comp);
+
+void LiberaArvoreBE(TipoApontadorBE Ap);
+
+// Adicione antes do #endif
+void RodaArvoreBEstrela(const char* nomeArq, int chave_procurada, int quantReg, bool P_flag);
 
 #endif

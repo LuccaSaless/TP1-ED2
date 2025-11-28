@@ -116,32 +116,36 @@ void liberarArvoreBin(NoArvoreBin* raiz) {
 
 void RodaArvoreBinaria(const char* nomeArq, int chave_procurada, int quantReg, bool P_flag) {
     NoArvoreBin* raizArvoreBin = NULL;
+    AnaliseExperimental analiseCriacao = {0, 0, 0};
 
-    AnaliseExperimental analiseCriacao;
-    analiseCriacao.numComparacoes = 0;
-    analiseCriacao.numTransferencias = 0;
-    analiseCriacao.tempoExecucao = 0;
-
+    // --- FASE 1: CRIACAO ---
     raizArvoreBin = construirArvoreBin(nomeArq, &analiseCriacao);
     if (raizArvoreBin == NULL) {
         fprintf(stderr, "Erro ao construir a arvore binaria.\n");
         return;
     }
 
-    AnaliseExperimental analisePesquisa;
-    AnaliseExperimental analisePesquisaTotal;
-    analisePesquisaTotal.numComparacoes = 0;
-    analisePesquisaTotal.numTransferencias = 0;
-    analisePesquisaTotal.tempoExecucao = 0;
+    printf("\n========================================================\n");
+    printf("METODO: 2 - ARVORE BINARIA EXTERNA\n");
+    printf("========================================================\n");
+    
+    printf("--- FASE 1: CRIACAO DO INDICE ---\n");
+    printf("Tempo Execucao: %.6f s\n", (double)analiseCriacao.tempoExecucao / 1000000.0);
+    printf("Transferencias: %d\n", analiseCriacao.numTransferencias);
+    printf("Comparacoes:    %d\n", analiseCriacao.numComparacoes);
 
+    // --- FASE 2: PESQUISA ---
+    printf("\n--- FASE 2: PESQUISA ---\n");
+    
+    AnaliseExperimental analisePesquisa = {0, 0, 0};
     bool encontrado = false;
     Item resultado;
 
     if (chave_procurada != -1) {
         FILE* arquivoParaPesquisa = fopen(nomeArq, "rb");
         if (arquivoParaPesquisa == NULL) {
-            perror("Erro ao abrir arquivo para pesquisa na Arvore Binaria");
-            if (raizArvoreBin) liberarArvoreBin(raizArvoreBin);
+            perror("Erro ao abrir arquivo");
+            liberarArvoreBin(raizArvoreBin);
             return;
         }
 
@@ -150,79 +154,27 @@ void RodaArvoreBinaria(const char* nomeArq, int chave_procurada, int quantReg, b
             resultado = *temp_resultado;
             free(temp_resultado);
             encontrado = true;
-        } else {
-            encontrado = false;
         }
         fclose(arquivoParaPesquisa);
-    } else {
-        int chaves_a_pesquisar[10];
 
-        for(int i=0; i<10; i++) {
-             chaves_a_pesquisar[i] = (i + 1) * (quantReg / 10);
-             if (chaves_a_pesquisar[0] == 0 && quantReg > 0) chaves_a_pesquisar[0] = 1;
-             if (chaves_a_pesquisar[i] == 0 && i > 0 && quantReg > 0) chaves_a_pesquisar[i] = chaves_a_pesquisar[i-1] + 1;
-             if (chaves_a_pesquisar[i] > quantReg && quantReg > 0) chaves_a_pesquisar[i] = quantReg;
-        }
-
-        for(int i=0; i<10; i++){
-            AnaliseExperimental analiseTemp;
-            analiseTemp.numComparacoes = 0;
-            analiseTemp.numTransferencias = 0;
-            analiseTemp.tempoExecucao = 0;
-
-            FILE* arquivoParaPesquisa = fopen(nomeArq, "rb");
-            if (arquivoParaPesquisa == NULL) {
-                perror("Erro ao abrir arquivo para pesquisa na Arvore Binaria (modo -E)");
-                if (raizArvoreBin) liberarArvoreBin(raizArvoreBin);
-                return;
-            }
-
-            Item* res_temp = pesquisarArvoreBin(raizArvoreBin, chaves_a_pesquisar[i], arquivoParaPesquisa, &analiseTemp);
-            if (res_temp != NULL) {
-                free(res_temp);
-            }
-            fclose(arquivoParaPesquisa);
-
-            analisePesquisaTotal.numComparacoes += analiseTemp.numComparacoes;
-            analisePesquisaTotal.numTransferencias += analiseTemp.numTransferencias;
-            analisePesquisaTotal.tempoExecucao += analiseTemp.tempoExecucao;
-        }
-    }
-
-    if (chave_procurada != -1) {
         if (encontrado) {
-            printf("\nItem com chave %d encontrado!\n", chave_procurada);
-            printf("Chave: %d\n", resultado.chave);
-            printf("Dado 1: %ld\n", resultado.dado1);
-            printf("Dado 2: %.100s...\n", resultado.dado2);
-            printf("Dado 3: %.100s...\n", resultado.dado3);
+            printf("[STATUS]: ITEM ENCONTRADO\n");
+            printf("> Chave:  %d\n", resultado.chave);
+            printf("> Dado1:  %ld\n", resultado.dado1);
+            if(P_flag) printf("> Dado2:  %.50s...\n", resultado.dado2);
         } else {
-            printf("\nItem com chave %d NAO encontrado.\n", chave_procurada);
+            printf("[STATUS]: ITEM NAO ENCONTRADO (Chave %d)\n", chave_procurada);
         }
-    }
 
-    printf("\nAnálise dos dados da Arvore Binaria:\n");
-    printf("--- FASE DE CRIAÇÃO DO ÍNDICE ---\n");
-    printf("Tempo Inserção: %.6f segundos | Transferências Inserção: %d | Comparações Inserção: %d\n",
-           (double)analiseCriacao.tempoExecucao / 1000000.0,
-           analiseCriacao.numTransferencias,
-           analiseCriacao.numComparacoes);
+        printf("\n--- METRICAS DE PESQUISA ---\n");
+        printf("Tempo Execucao: %.6f s\n", (double)analisePesquisa.tempoExecucao / 1000000.0);
+        printf("Transferencias: %d\n", analisePesquisa.numTransferencias);
+        printf("Comparacoes:    %d\n", analisePesquisa.numComparacoes);
 
-    if (chave_procurada != -1) {
-        printf("\n--- FASE DE PESQUISA SIMPLES ---\n");
-        printf("Tempo Pesquisa: %.6f segundos | Transferências Pesquisa: %d | Comparações Pesquisa: %d\n",
-               (double)analisePesquisa.tempoExecucao / 1000000.0,
-               analisePesquisa.numTransferencias,
-               analisePesquisa.numComparacoes);
     } else {
-        printf("\n--- FASE DE PESQUISA (MEDIA DE 10 BUSCAS) ---\n");
-        printf("Tempo Pesquisa Medio: %.6f segundos | Transferências Pesquisa Media: %.2f | Comparações Pesquisa Media: %.2f\n",
-               (double)analisePesquisaTotal.tempoExecucao / 10.0 / 1000000.0,
-               (double)analisePesquisaTotal.numTransferencias / 10.0,
-               (double)analisePesquisaTotal.numComparacoes / 10.0);
+        printf("Modo experimental (10 buscas) nao formatado neste padrao.\n");
     }
+    printf("========================================================\n");
 
-    if (raizArvoreBin) {
-        liberarArvoreBin(raizArvoreBin);
-    }
+    if (raizArvoreBin) liberarArvoreBin(raizArvoreBin);
 }

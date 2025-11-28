@@ -4,29 +4,31 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <string.h>
-#include "item.h" // Inclui Item e AnaliseExperimental
+#include <sys/types.h>
 
-#define M 2
+// --- ADICIONE ESTA LINHA OBRIGATORIAMENTE ---
+#include "item.h" 
+// -------------------------------------------
+
+#define M 100
 #define MAX (2 * M)
 
-// Renomear a estrutura No para B_No
+typedef off_t FilePos; 
+
 typedef struct B_No {
     int qtdChaves;
-    int chaves[MAX];
-    struct B_No* filhos[MAX + 1];
     bool folha;
+    int chaves[MAX];       
+    FilePos offsets[MAX];  
+    struct B_No* filhos[MAX + 1];
 } B_No;
 
-typedef B_No* ArvoreB; // ArvoreB continuará a ser um ponteiro para B_No
+typedef B_No* ArvoreB; 
 
-// Renomear funções
 B_No* B_criaNo(bool folha);
-void B_arvoreInsere(ArvoreB* arvore, Item item, AnaliseExperimental* analise);
-bool B_arvoreBusca(B_No* raiz, int chave, Item* resultado, AnaliseExperimental* analise);
+void B_arvoreInsere(ArvoreB* arvore, int chave, FilePos offset, AnaliseExperimental* analise);
+FilePos B_arvoreBusca(B_No* raiz, int chave, AnaliseExperimental* analise);
 void RodaArvoreB(const char* nomeArq, int chave_procurada, int quantReg, bool P_flag);
 void B_liberaArvoreB(ArvoreB arvore);
 
-
-#endif // ARVOREB_H
+#endif
